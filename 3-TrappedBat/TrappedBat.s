@@ -1,6 +1,6 @@
 **
-**	$VER: TrappedBat.s v1.0 release (February 2026)
-**	Platform: Apollo Vampire (SAGA Graphics)
+**	$VER: TrappedBat.s v1.1 release (September 2026)
+**	Platform: Apollo V4 (SAGA Graphics)
 **	Assemble command:
 **				Programs:Developer/VASM/vasmm68k_mot TrappedBat.s -Fhunkexe
 **	
@@ -14,8 +14,6 @@
 **			- We clear the area before drawing the bat image on a new location to make sure no trails/garbage is left on the screen.
 **			  Using a mask for this would be better/quicker - That is for another example
 
-			opt d+
-
 			machine 68080						; NOTE - Tells the assembler to treat this source as 68080 code.
 
 			incdir	"include:"
@@ -25,11 +23,11 @@
 			output	RAM:TrappedBat					; Final code is saved to RAM-Disk
 
 
-POTGOR		equ	$dff016		
+POTGOR		equ	$dff016
 DMACON		equ	$dff096
 DMACONR		equ	$dff002
-GFXCON		equ	$dff1f4
-GFXCONR		equ	$dfe1f4
+GFXMODE		equ	$dff1f4
+GFXMODER	equ	$dfe1f4
 BPLHMOD		equ	$dff1e6
 BPLHMODR	equ	$dfe1e6
 BPLHPTH		equ	$dff1ec
@@ -37,7 +35,6 @@ BPLHPTHR	equ	$dfe1ec
 SPRHSTRT	equ	$dff1d0
 INTREQ		equ	$dff09c
 INTREQR		equ	$dff01e
-
 			
 SCREEN_WIDTH	equ	1280
 SCREEN_HEIGHT	equ	720
@@ -52,39 +49,39 @@ BAT_HEIGHT	equ	183
 			
 _Init			move.w	POTGOR,d0
 			andi.w	#$fe,d0						; 0 = Paula, 1=Arne (Full SAGA Chipset)
-			beq.s	.quit						; If no Vampire v4/SAGA Chipset is detected, quit and don`t tell anyone :-)
+			beq	.quit						; If no Vampire v4/SAGA Chipset is detected, quit and don`t tell anyone :-)
 
-			movea.l	4.w,a6
-			move.l	#(SCREEN_WIDTH*SCREEN_HEIGHT*SCREEN_BPP)+32,d0
+			ori.w	#$0800,sr					; Set AMMX Bit - Enable use of e-registers
+
+			movea.l	4.w,a6						; a6 = ExecBase
+			move.l	#(SCREEN_WIDTH*SCREEN_HEIGHT*SCREEN_BPP)+64,d0
 			move.l	#MEMF_CLEAR!MEMF_PUBLIC,d1			; Cleared memory, SAGA Graphics don`t need chipram - NO LIMITS !!!
-			jsr	_LVOAllocMem(a6)				; Allocate memory for screen buffer + 32 bytes for alignment
-			move.l	d0,_MemoryBuffer(pc)
+			jsr	_LVOAllocVec(a6)				; Allocate memory for screen buffer + 64 bytes for alignment
+			move.l	d0,_MemoryBuffer
 			beq	.quit
+
+			add.l	#63,d0
+			and.l	#-64,d0
+			move.l	d0,_ScreenPointer				; This trick aligns the Screenpointer to 64 bytes in memory = Quicker access to the data
 
 			jsr	_LVODisable(a6)
 
-			move.w	DMACONR,store_dmacon(pc)
-			move.w	GFXCONR,store_gfxcon(pc)
-			move.w	BPLHMODR,store_bplhmod(pc)
-			move.l	BPLHPTHR,store_bplhpth(pc)
+			move.w	DMACONR,store_dmacon
+			move.w	GFXMODER,store_gfxmode
+			move.w	BPLHMODR,store_bplhmod
+			move.l	BPLHPTHR,store_bplhpth
 
+			move.l	#-16,SPRHSTRT					; Move mousepoint out of screen
 			move.w	#$7fff,DMACON
-			clr.l	SPRHSTRT
-			move.w	#$0a02,GFXCON					; 0a = 1280x720, 02 = 16 bit chunky 
+			move.w	#$0a02,GFXMODE					; 0a = 1280x720, 02 = 16 bit chunky 
 			clr.w	BPLHMOD
 
-			move.l	_MemoryBuffer(pc),d0
-			add.l	#31,d0
-			and.l	#$ffffffe0,d0
-			move.l	d0,_ScreenPointer(pc)				; This trick aligns the Screenpointer to 32 bytes in the Framebuffer = Quicker access to the data
+			move.l  _ScreenPointer,BPLHPTH				; Writes our aligned screenpointer to BPLHPTH and the hardware displays the data on screen
 
-			move.l  d0,BPLHPTH
-
-
-			move.l	#200,_BatXPos(pc)
-			move.l	#150,_BatYPos(pc)
-			move.l	#2,_BatXSpeed(pc)
-			move.l	#2,_BatYSpeed(pc)				; Set start position of our bat
+			move.l	#200,_BatXPos
+			move.l	#150,_BatYPos
+			move.l	#2,_BatXSpeed
+			move.l	#2,_BatYSpeed					; Set start position of our bat
 
 .waitLoop		btst	#5,INTREQR+1					; Test low byte bit 5 to wait for Vertical Blank
 			beq.s	.waitLoop
@@ -97,17 +94,16 @@ _Init			move.w	POTGOR,d0
 
 
 			or.w    #$8000,store_dmacon				; Set the highest bit to enable write access
-			move.w	store_dmacon(pc),DMACON
-			move.w	store_gfxcon(pc),GFXCON
-			move.w	store_bplhmod(pc),BPLHMOD
-			move.l	store_bplhpth(pc),BPLHPTH
+			move.w	store_dmacon,DMACON
+			move.w	store_gfxmode,GFXMODE
+			move.w	store_bplhmod,BPLHMOD
+			move.l	store_bplhpth,BPLHPTH
 
 			movea.l	4.w,a6
 			jsr	_LVOEnable(a6)
 
-			movea.l	_MemoryBuffer(pc),a1
-			move.l	#(SCREEN_WIDTH*SCREEN_HEIGHT*SCREEN_BPP)+32,d0
-			jsr	_LVOFreeMem(a6)
+			movea.l	_MemoryBuffer,a1
+			jsr	_LVOFreeVec(a6)
 
 .quit			moveq	#0,d0
 			rts
@@ -117,16 +113,16 @@ _Init			move.w	POTGOR,d0
 			; _AnimateBat
 			;--------------------------------------------------------------
 						
-_AnimateBat		move.l	_BatXPos(pc),d0
-			move.l	_BatYPos(pc),d1
+_AnimateBat		move.l	_BatXPos,d0
+			move.l	_BatYPos,d1
 			move.l	#BAT_WIDTH,d2
 			move.l	#BAT_HEIGHT,d3
 			bsr	_ClearArea					; Read the bat's previous position and clear the area
 
-			move.l	_BatXPos(pc),d0
-			move.l	_BatYPos(pc),d1
-			move.l	_BatXSpeed(pc),d2
-			move.l	_BatYSpeed(pc),d3
+			move.l	_BatXPos,d0
+			move.l	_BatYPos,d1
+			move.l	_BatXSpeed,d2
+			move.l	_BatYSpeed,d3
 			
 			add.l	d2,d0						; Moves X position by given X speed
 			add.l	d3,d1						; Moves Y position by given Y speed
@@ -141,10 +137,10 @@ _AnimateBat		move.l	_BatXPos(pc),d0
 			cmp.l	#0,d1						; Compare current Y position with screens top edge
 			ble.s	.flipY
 			
-.doneY			move.l	d0,_BatXPos(pc)
-			move.l	d1,_BatYPos(pc)
-			move.l	d2,_BatXSpeed(pc)
-			move.l	d3,_BatYSpeed(pc)
+.doneY			move.l	d0,_BatXPos
+			move.l	d1,_BatYPos
+			move.l	d2,_BatXSpeed
+			move.l	d3,_BatYSpeed
 			bsr	_DrawBat					; Draw bat at new position
 			rts
 
@@ -163,7 +159,7 @@ _AnimateBat		move.l	_BatXPos(pc),d0
 			;	d1 = Y Pos
 
 _DrawBat		lea	_BatImage,a0
-			movea.l	_ScreenPointer(pc),a1
+			movea.l	_ScreenPointer,a1
 			
 			add.l	d0,d0						; Multiply X by 2 to get position in 16 bit word
 			mulu.l	#SCREEN_WIDTH*2,d1				; Multiply Y by Screens width in 16 bit word
@@ -188,7 +184,7 @@ _DrawBat		lea	_BatImage,a0
 			;	d2 = Width
 			;	d3 = Height
 						
-_ClearArea		movea.l	_ScreenPointer(pc),a0
+_ClearArea		movea.l	_ScreenPointer,a0
 
 			add.l	d0,d0						; d0 = d0 * 2 - Convert pixel position to word
 			mulu.l	#SCREEN_WIDTH*2,d1
@@ -218,15 +214,14 @@ _ClearArea		movea.l	_ScreenPointer(pc),a0
 			rts
 
 			
-			
-			; Declaring data in code section for smaller pc-relative code.
+			Section myBSS,bss
 
-			even							; Align data to avoid problems
+			cnop	0,4						; Align data to avoid problems
 			
 _MemoryBuffer		ds.l	1
 _ScreenPointer		ds.l	1						; Aligned and populated at runtime
 store_dmacon		ds.w	1
-store_gfxcon		ds.w	1
+store_gfxmode		ds.w	1
 store_bplhmod		ds.w	1
 store_bplhpth		ds.l	1
 _BatXPos		ds.l	1

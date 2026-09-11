@@ -1,6 +1,6 @@
 **
-**	$VER: TinyBeatbox.s v1.0 release (February 2026)
-**	Platform: Apollo Vampire (SAGA Graphics)
+**	$VER: TinyBeatbox.s v1.1 release (September 2026)
+**	Platform: Apollo V4 (SAGA Graphics)
 **	Assemble command:
 **				Programs:Developer/VASM/vasmm68k_mot TinyBeatbox.s -Fhunkexe
 **	
@@ -16,8 +16,6 @@
 **			- Exit cleanly when ESC or Left mousebutton is pressed
 
 
-			opt d+
-
 			machine 68080						; NOTE - Tells the assembler to treat this source as 68080 code.
 
 			incdir	"include:"
@@ -27,11 +25,11 @@
 			output	RAM:TinyBeatbox
 
 
-POTGOR		equ	$dff016		
+POTGOR		equ	$dff016
 DMACON		equ	$dff096
 DMACONR		equ	$dff002
-GFXCON		equ	$dff1f4
-GFXCONR		equ	$dfe1f4
+GFXMODE		equ	$dff1f4
+GFXMODER	equ	$dfe1f4
 BPLHMOD		equ	$dff1e6
 BPLHMODR	equ	$dfe1e6
 BPLHPTH		equ	$dff1ec
@@ -44,9 +42,6 @@ DMACON2		equ	$dff296
 CIAAPRA		equ	$bfe001
 CIAASDR		equ	$bfec01
 CIAACRA		equ	$bfee01
-
-
-
 
 			
 SCREEN_WIDTH	equ	1280
@@ -72,30 +67,32 @@ _Init			move.w	POTGOR,d0
 			andi.w	#$fe,d0						; 0 = Paula, 1=Arne (Full SAGA Chipset)
 			beq	.quit						; If no Vampire v4/SAGA Chipset is detected, quit and don`t tell anyone :-)
 
-			movea.l	4.w,a6
-			move.l	#(SCREEN_WIDTH*SCREEN_HEIGHT*SCREEN_BPP)+32,d0
+			ori.w	#$0800,sr					; Set AMMX Bit - Enable use of e-registers
+
+			movea.l	4.w,a6						; a6 = ExecBase
+			move.l	#(SCREEN_WIDTH*SCREEN_HEIGHT*SCREEN_BPP)+64,d0
 			move.l	#MEMF_CLEAR!MEMF_PUBLIC,d1			; Cleared memory, SAGA Graphics don`t need chipram - NO LIMITS !!!
-			jsr	_LVOAllocMem(a6)				; Allocate memory for screen buffer + 32 bytes for alignment
-			move.l	d0,_MemoryBuffer(pc)
+			jsr	_LVOAllocVec(a6)				; Allocate memory for screen buffer + 64 bytes for alignment
+			move.l	d0,_MemoryBuffer
 			beq	.quit
+
+			add.l	#63,d0
+			and.l	#-64,d0
+			move.l	d0,_ScreenPointer				; This trick aligns the Screenpointer to 64 bytes in memory = Quicker access to the data
 
 			jsr	_LVODisable(a6)
 
-			move.w	DMACONR,store_dmacon(pc)
-			move.w	GFXCONR,store_gfxcon(pc)
-			move.w	BPLHMODR,store_bplhmod(pc)
-			move.l	BPLHPTHR,store_bplhpth(pc)
+			move.w	DMACONR,store_dmacon
+			move.w	GFXMODER,store_gfxmode
+			move.w	BPLHMODR,store_bplhmod
+			move.l	BPLHPTHR,store_bplhpth
 
+			move.l	#-16,SPRHSTRT					; Move mousepoint out of screen
 			move.w	#$7fff,DMACON
-			clr.l	SPRHSTRT
-			move.w	#$0a02,GFXCON					; 0a = 1280x720, 02 = 16 bit chunky 
+			move.w	#$0a02,GFXMODE					; 0a = 1280x720, 02 = 16 bit chunky 
 			clr.w	BPLHMOD
 
-			move.l	_MemoryBuffer(pc),d0
-			add.l	#31,d0
-			and.l	#$ffffffe0,d0
-			move.l	d0,_ScreenPointer(pc)				; This trick aligns the Screenpointer to 32 bytes in the Framebuffer = Quicker access to the data
-			move.l  d0,BPLHPTH
+			move.l  _ScreenPointer,BPLHPTH				; Writes our aligned screenpointer to BPLHPTH and the hardware displays the data on screen
 
 
 			bsr	_BuildGraphics					; Draw Logo and buttons on screen
@@ -104,17 +101,16 @@ _Init			move.w	POTGOR,d0
 			bsr	_MainLoop
 
 			or.w    #$8000,store_dmacon				; Set the highest bit to enable write access
-			move.w	store_dmacon(pc),DMACON
-			move.w	store_gfxcon(pc),GFXCON
-			move.w	store_bplhmod(pc),BPLHMOD
-			move.l	store_bplhpth(pc),BPLHPTH
+			move.w	store_dmacon,DMACON
+			move.w	store_gfxmode,GFXMODE
+			move.w	store_bplhmod,BPLHMOD
+			move.l	store_bplhpth,BPLHPTH
 
 			movea.l	4.w,a6
 			jsr	_LVOEnable(a6)
 
-			movea.l	_MemoryBuffer(pc),a1
-			move.l	#(SCREEN_WIDTH*SCREEN_HEIGHT*SCREEN_BPP)+32,d0
-			jsr	_LVOFreeMem(a6)
+			movea.l	_MemoryBuffer,a1
+			jsr	_LVOFreeVec(a6)
 
 .quit			moveq	#0,d0
 			rts
@@ -129,8 +125,8 @@ _Init			move.w	POTGOR,d0
 			; 125 BPM * 4 quarter notes = 500 ticks.
 			; 3000 VBL / 500 ticks = 6 frames per quarter note
 
-_MainLoop		move.l	#0,_Quit(pc)			
-			move.l	#0,_QuarterNote_Counter(pc)
+_MainLoop		move.l	#0,_Quit
+			move.l	#0,_QuarterNote_Counter
 
 .exitLoop		moveq	#6-1,d0
 .timingLoop		btst	#5,INTREQR+1
@@ -156,7 +152,7 @@ _MainLoop		move.l	#0,_Quit(pc)
 			ble.s	.noReset
 			move.l	#0,_QuarterNote_Counter
 
-.noReset		cmp.l	#1,_Quit(pc)
+.noReset		cmp.l	#1,_Quit
 			beq.s	.exit
 
 			btst	#6,CIAAPRA					; Check for left mousebutton
@@ -173,7 +169,7 @@ _KeyboardHandler	bsr	_ReadKeyboard
 
 			cmp.b	#$45,d0						; ESC key
 			bne.s	.noESC
-			move.l	#1,_Quit(pc)
+			move.l	#1,_Quit
 			
 .noESC			cmp.b	#$01,d0						; 1 Key
 			bne.s	.not1
@@ -437,7 +433,7 @@ _BuildGraphics
 
 _DrawImage16		movem.l	d0-d4/a0-a1,-(sp)
 
-			movea.l	_ScreenPointer(pc),a1
+			movea.l	_ScreenPointer,a1
 			add.l	d0,d0						; Multiply X by 2 to get position in 16 bit word
 			mulu.l	#SCREEN_WIDTH*SCREEN_BPP,d1			; Multiply Y by Screens width in 16 bit word
 			add.l	d1,d0						; Add offset
@@ -460,17 +456,16 @@ _DrawImage16		movem.l	d0-d4/a0-a1,-(sp)
 			rts
 
 
+			Section myBSS,bss
 
-			; Declaring data in code section for smaller pc-relative code.
-
-			even							; Align data to avoid problems
+			cnop	0,4						; Align data to avoid problems
 			
 _MemoryBuffer		ds.l	1
 _ScreenPointer		ds.l	1						; Aligned and populated at runtime
 _Quit			ds.l	1
 _QuarterNote_Counter	ds.l	1
 store_dmacon		ds.w	1
-store_gfxcon		ds.w	1
+store_gfxmode		ds.w	1
 store_bplhmod		ds.w	1
 store_bplhpth		ds.l	1
 

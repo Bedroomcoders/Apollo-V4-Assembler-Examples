@@ -1,6 +1,6 @@
 **
-**	$VER: RGB565.s v1.0 release (February 2026)
-**	Platform: Apollo Vampire (SAGA Graphics)
+**	$VER: RGB565.s v1.1 release (September 2026)
+**	Platform: Apollo V4 (SAGA Graphics)
 **	Assemble command:
 **				Programs:Developer/VASM/vasmm68k_mot RGB565.s -Fhunkexe
 **	
@@ -14,8 +14,6 @@
 **			but this code give better understanding of how it`s done.
 
 
-			opt d+
-
 			machine 68080						; NOTE - Tells the assembler to treat this source as 68080 code.
 
 			incdir	"include:"
@@ -24,18 +22,17 @@
 
 			output	RAM:RGB565					; Final code is saved to RAM-Disk
 
-
-POTGOR		equ	$dff016		
+POTGOR		equ	$dff016
 DMACON		equ	$dff096
 DMACONR		equ	$dff002
-GFXCON		equ	$dff1f4
-GFXCONR		equ	$dfe1f4
+GFXMODE		equ	$dff1f4
+GFXMODER	equ	$dfe1f4
 BPLHMOD		equ	$dff1e6
 BPLHMODR	equ	$dfe1e6
 BPLHPTH		equ	$dff1ec
 BPLHPTHR	equ	$dfe1ec
 SPRHSTRT	equ	$dff1d0
-			
+
 SCREEN_WIDTH	equ	1280
 SCREEN_HEIGHT	equ	720
 SCREEN_BPP	equ	2							; Bytes per pixel = 2 (16 bits screen or 1 word per pixel)
@@ -49,32 +46,32 @@ _Init			move.w	POTGOR,d0
 			andi.w	#$fe,d0						; 0 = Paula, 1=Arne (Full SAGA Chipset)
 			beq.s	.quit						; If no Vampire v4/SAGA Chipset is detected, quit and don`t tell anyone :-)
 
-			movea.l	4.w,a6
-			move.l	#(SCREEN_WIDTH*SCREEN_HEIGHT*SCREEN_BPP)+32,d0
+			ori.w	#$0800,sr					; Set AMMX Bit - Enable use of e-registers
+
+			movea.l	4.w,a6						; a6 = ExecBase
+			move.l	#(SCREEN_WIDTH*SCREEN_HEIGHT*SCREEN_BPP)+64,d0
 			move.l	#MEMF_CLEAR!MEMF_PUBLIC,d1			; Cleared memory, SAGA Graphics don`t need chipram - NO LIMITS !!!
-			jsr	_LVOAllocMem(a6)				; Allocate memory for screen buffer + 32 bytes for alignment
-			move.l	d0,_MemoryBuffer(pc)
+			jsr	_LVOAllocVec(a6)				; Allocate memory for screen buffer + 64 bytes for alignment
+			move.l	d0,_MemoryBuffer
 			beq	.quit
+
+			add.l	#63,d0
+			and.l	#-64,d0
+			move.l	d0,_ScreenPointer				; This trick aligns the Screenpointer to 64 bytes in memory = Quicker access to the data
 
 			jsr	_LVODisable(a6)
 
-			move.w	DMACONR,store_dmacon(pc)
-			move.w	GFXCONR,store_gfxcon(pc)
-			move.w	BPLHMODR,store_bplhmod(pc)
-			move.l	BPLHPTHR,store_bplhpth(pc)
+			move.w	DMACONR,store_dmacon
+			move.w	GFXMODER,store_gfxmode
+			move.w	BPLHMODR,store_bplhmod
+			move.l	BPLHPTHR,store_bplhpth
 
+			move.l	#-16,SPRHSTRT					; Move mousepoint out of screen
 			move.w	#$7fff,DMACON
-			clr.l	SPRHSTRT
-			move.w	#$0a02,GFXCON					; 0a = 1280x720, 02 = 16 bit chunky 
+			move.w	#$0a02,GFXMODE					; 0a = 1280x720, 02 = 16 bit chunky 
 			clr.w	BPLHMOD
 
-			move.l	_MemoryBuffer(pc),d0
-			add.l	#31,d0
-			and.l	#$ffffffe0,d0
-			move.l	d0,_ScreenPointer(pc)				; This trick aligns the Screenpointer to 32 bytes in the Framebuffer = Quicker access to the data
-
-			move.l  d0,BPLHPTH
-
+			move.l  _ScreenPointer,BPLHPTH				; Writes our aligned screenpointer to BPLHPTH and the hardware displays the data on screen
 
 			move.l	#$44ff88,d0					; Red = $44, Green = $ff, Blue = $88
 			bsr	_ConvertRGB565
@@ -85,17 +82,16 @@ _Init			move.w	POTGOR,d0
 			bne.s	.lmbLoop
 
 			or.w    #$8000,store_dmacon				; Set the highest bit to enable write access
-			move.w	store_dmacon(pc),DMACON
-			move.w	store_gfxcon(pc),GFXCON
-			move.w	store_bplhmod(pc),BPLHMOD
-			move.l	store_bplhpth(pc),BPLHPTH
+			move.w	store_dmacon,DMACON
+			move.w	store_gfxmode,GFXMODE
+			move.w	store_bplhmod,BPLHMOD
+			move.l	store_bplhpth,BPLHPTH
 
 			movea.l	4.w,a6
 			jsr	_LVOEnable(a6)
 
-			movea.l	_MemoryBuffer(pc),a1
-			move.l	#(SCREEN_WIDTH*SCREEN_HEIGHT*SCREEN_BPP)+32,d0
-			jsr	_LVOFreeMem(a6)
+			movea.l	_MemoryBuffer,a1
+			jsr	_LVOFreeVec(a6)
 
 .quit			moveq	#0,d0
 			rts
@@ -154,13 +150,15 @@ _ClearScreen		movea.l	_ScreenPointer,a0
 
 
 			
-			; Declaring data in code section for smaller pc-relative code.
+			; Declaring data in BSS section gives automatic allocation of cleared memory
 
-			even							; Align data to avoid problems
+			Section myBSS,bss
+
+			cnop	0,4						; Align data to avoid problems
 			
 _MemoryBuffer		ds.l	1
 _ScreenPointer		ds.l	1						; Aligned and populated at runtime
 store_dmacon		ds.w	1
-store_gfxcon		ds.w	1
+store_gfxmode		ds.w	1
 store_bplhmod		ds.w	1
 store_bplhpth		ds.l	1
