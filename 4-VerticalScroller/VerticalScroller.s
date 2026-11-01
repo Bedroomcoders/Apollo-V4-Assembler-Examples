@@ -49,7 +49,7 @@ VIEW_HEIGHT	equ	720
 			
 _Init			move.w	POTGOR,d0
 			andi.w	#$fe,d0						; 0 = Paula, 1=Arne (Full SAGA Chipset)
-			beq.s	.quit						; If no Vampire v4/SAGA Chipset is detected, quit and don`t tell anyone :-)
+			beq.w	.quit						; If no Vampire v4/SAGA Chipset is detected, quit and don`t tell anyone :-)
 
 			ori.w	#$0800,sr					; Set AMMX Bit - Enable use of e-registers
 
